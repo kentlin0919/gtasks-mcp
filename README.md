@@ -63,15 +63,103 @@ The server provides access to Google Tasks resources:
 
 ## Getting started
 
+### Prerequisites
+
 1. [Create a new Google Cloud project](https://console.cloud.google.com/projectcreate)
 2. [Enable the Google Tasks API](https://console.cloud.google.com/workspace-api/products)
 3. [Configure an OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) ("internal" is fine for testing)
 4. Add scopes `https://www.googleapis.com/auth/tasks`
 5. [Create an OAuth Client ID](https://console.cloud.google.com/apis/credentials/oauthclient) for application type "Desktop App"
 6. Download the JSON file of your client's OAuth keys
-7. Rename the key file to `gcp-oauth.keys.json` and place into the root of this repo (i.e. `gcp-oauth.keys.json`)
 
-Make sure to build the server with either `npm run build` or `npm run watch`.
+### Installation
+
+1. Clone this repository
+2. Install dependencies and build:
+   ```bash
+   npm install
+   npm run build
+   ```
+
+### Quick Usage with `npx`
+
+Once installed and built, you can use `npx` to run the server or trigger authentication:
+
+**1. Run the MCP Server:**
+   ```bash
+   npx g-tasks-mcp
+   ```
+   (If credentials are not found, this will automatically launch the authentication flow.)
+
+**2. Manually Trigger Authentication:**
+   ```bash
+   npx g-tasks-mcp auth
+   ```
+   (This will explicitly launch the authentication flow.)
+
+   *Ensure you have your OAuth credentials configured as described in the "Configuration & Authentication" section below.*
+
+### Configuration & Authentication
+
+This server supports multiple ways to provide your Google Cloud OAuth credentials. It handles authentication automatically: if no valid user credentials (`.gtasks-server-credentials.json`) are found, it will launch a browser window to authenticate you when the server starts.
+
+You can configure the OAuth keys using **one** of the following methods:
+
+#### Method 1: Environment Variables (Recommended)
+
+Set the following environment variables in your MCP client configuration (e.g., `claude_desktop_config.json`). This is the cleanest way as it doesn't require placing files in the source directory.
+
+- `GOOGLE_OAUTH_CREDENTIALS`: Absolute path to your downloaded OAuth JSON key file.
+  - OR -
+- `GOOGLE_CLIENT_ID`: Your OAuth Client ID.
+- `GOOGLE_CLIENT_SECRET`: Your OAuth Client Secret.
+
+#### Method 2: Key File
+
+Rename your downloaded OAuth JSON key file to `gcp-oauth.keys.json` and place it in the root directory of this repository.
+
+### Usage with Claude Desktop
+
+Add the following to your `claude_desktop_config.json` (typically located at `~/Library/Application Support/Claude/` on macOS):
+
+#### Option 1: Using Local Installation
+
+```json
+{
+  "mcpServers": {
+    "gtasks": {
+      "command": "/path/to/your/node",
+      "args": [
+        "/absolute/path/to/gtasks-mcp/dist/index.js"
+      ],
+      "env": {
+        "GOOGLE_OAUTH_CREDENTIALS": "/absolute/path/to/your/gcp-oauth.keys.json"
+      }
+    }
+  }
+}
+```
+
+*Replace `/path/to/your/node` (run `which node` to find it) and `/absolute/path/to/...` with your actual paths.*
+
+#### Option 2: Using `npx` (No Local Installation Required)
+
+```json
+{
+  "mcpServers": {
+    "gtasks": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "g-tasks-mcp"
+      ],
+      "env": {
+        "GOOGLE_OAUTH_CREDENTIALS": "/absolute/path/to/your/gcp-oauth.keys.json"
+      }
+    }
+  }
+}
+```
 
 ### Installing via Smithery
 
@@ -81,28 +169,16 @@ To install Google Tasks Server for Claude Desktop automatically via [Smithery](h
 npx -y @smithery/cli install @zcaceres/gtasks --client claude
 ```
 
-### Authentication
+## Build
 
-To authenticate and save credentials:
+To rebuild the project:
 
-1. Run the server with the `auth` argument: `npm run start auth`
-2. This will open an authentication flow in your system browser
-3. Complete the authentication process
-4. Credentials will be saved in the root of this repo (i.e. `.gdrive-server-credentials.json`)
+```bash
+npm run build
+```
 
-### Usage with Desktop App
+To watch for changes during development:
 
-To integrate this server with the desktop app, add the following to your app's server configuration:
-
-```json
-{
-  "mcpServers": {
-    "gtasks": {
-      "command": "/opt/homebrew/bin/node",
-      "args": [
-        "{ABSOLUTE PATH TO FILE HERE}/dist/index.js"
-      ]
-    }
-  }
-}
+```bash
+npm run dev
 ```

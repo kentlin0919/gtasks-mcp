@@ -239,27 +239,77 @@ const credentialsPath = path.join(
 );
 
 async function authenticateAndSaveCredentials() {
-  console.log("Launching auth flow…");
-  const p = path.join(
+  console.error("Launching auth flow…");
+  const keyFilePath = path.join(
     path.dirname(new URL(import.meta.url).pathname),
     "../gcp-oauth.keys.json",
   );
 
-  console.log(p);
-  const auth = await authenticate({
-    keyfilePath: p,
-    scopes: ["https://www.googleapis.com/auth/tasks"],
-  });
-  fs.writeFileSync(credentialsPath, JSON.stringify(auth.credentials));
-  console.log("Credentials saved. You can now run the server.");
+  let auth;
+  let tempKeyPath: string | null = null;
+
+  try {
+    if (process.env.GOOGLE_OAUTH_CREDENTIALS) {
+      console.error(`Using keys file from GOOGLE_OAUTH_CREDENTIALS environment variable: ${process.env.GOOGLE_OAUTH_CREDENTIALS}`);
+      auth = await authenticate({
+        keyfilePath: process.env.GOOGLE_OAUTH_CREDENTIALS,
+        scopes: ["https://www.googleapis.com/auth/tasks"],
+      });
+    } else if (fs.existsSync(keyFilePath)) {
+      console.error(`Using keys file: ${keyFilePath}`);
+      auth = await authenticate({
+        keyfilePath: keyFilePath,
+        scopes: ["https://www.googleapis.com/auth/tasks"],
+      });
+    } else if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+      console.error("Using credentials from environment variables.");
+      const keys = {
+        installed: {
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          project_id: "gtasks-mcp", // Placeholder
+          auth_uri: "https://accounts.google.com/o/oauth2/auth",
+          token_uri: "https://oauth2.googleapis.com/token",
+          auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          redirect_uris: ["http://localhost:3000/oauth2callback"],
+        },
+      };
+      
+      tempKeyPath = path.join(
+        path.dirname(new URL(import.meta.url).pathname),
+        "../temp-oauth.keys.json"
+      );
+      fs.writeFileSync(tempKeyPath, JSON.stringify(keys));
+      
+      auth = await authenticate({
+        keyfilePath: tempKeyPath,
+        scopes: ["https://www.googleapis.com/auth/tasks"],
+      });
+    } else {
+      throw new Error(
+        "No credentials found. Please provide 'gcp-oauth.keys.json' or set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables."
+      );
+    }
+
+    fs.writeFileSync(credentialsPath, JSON.stringify(auth.credentials));
+    console.error("Credentials saved. You can now run the server.");
+
+  } finally {
+    if (tempKeyPath && fs.existsSync(tempKeyPath)) {
+      fs.unlinkSync(tempKeyPath);
+    }
+  }
 }
 
 async function loadCredentialsAndRunServer() {
   if (!fs.existsSync(credentialsPath)) {
-    console.error(
-      "Credentials not found. Please run with 'auth' argument first.",
-    );
-    process.exit(1);
+    console.error("Credentials not found. Launching authentication...");
+    try {
+      await authenticateAndSaveCredentials();
+    } catch (error) {
+      console.error("Authentication failed:", error);
+      process.exit(1);
+    }
   }
 
   const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
