@@ -301,7 +301,11 @@ async function authenticateAndSaveCredentials() {
   }
 }
 
-async function loadCredentialsAndRunServer() {
+function writeCredentials(credentials: object) {
+  fs.writeFileSync(credentialsPath, JSON.stringify(credentials));
+}
+
+async function loadOrRefreshAuth() {
   if (!fs.existsSync(credentialsPath)) {
     console.error("Credentials not found. Launching authentication...");
     try {
@@ -312,9 +316,44 @@ async function loadCredentialsAndRunServer() {
     }
   }
 
-  const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
+  let credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
   const auth = new google.auth.OAuth2();
   auth.setCredentials(credentials);
+
+  auth.on("tokens", (tokens) => {
+    if (!tokens.access_token && !tokens.refresh_token) {
+      return;
+    }
+    const merged = {
+      ...auth.credentials,
+      ...tokens,
+      refresh_token: tokens.refresh_token || auth.credentials.refresh_token,
+    };
+    writeCredentials(merged);
+  });
+
+  try {
+    const accessToken = await auth.getAccessToken();
+    if (!accessToken?.token) {
+      throw new Error("No access token available.");
+    }
+  } catch (error) {
+    console.error("Stored credentials invalid. Re-authenticating...");
+    try {
+      await authenticateAndSaveCredentials();
+    } catch (authError) {
+      console.error("Authentication failed:", authError);
+      process.exit(1);
+    }
+    credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
+    auth.setCredentials(credentials);
+  }
+
+  return auth;
+}
+
+async function loadCredentialsAndRunServer() {
+  const auth = await loadOrRefreshAuth();
   google.options({ auth });
 
   const transport = new StdioServerTransport();
