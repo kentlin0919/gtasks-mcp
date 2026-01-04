@@ -11,11 +11,13 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from "fs";
-import { google, tasks_v1 } from "googleapis";
+import { google, tasks_v1, calendar_v3 } from "googleapis";
 import path from "path";
 import { TaskActions, TaskResources } from "./Tasks.js";
+import { CalendarActions, CalendarResources } from "./Calendar.js";
 
 const tasks = google.tasks("v1");
+const calendar = google.calendar("v3");
 
 const server = new Server(
   {
@@ -43,35 +45,53 @@ server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
 });
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const task = await TaskResources.read(request, tasks);
+  if (request.params.uri.startsWith("gtasks:///")) {
+    const task = await TaskResources.read(request, tasks);
 
-  const taskDetails = [
-    `Title: ${task.title || "No title"}`,
-    `Status: ${task.status || "Unknown"}`,
-    `Due: ${task.due || "Not set"}`,
-    `Notes: ${task.notes || "No notes"}`,
-    `Hidden: ${task.hidden || "Unknown"}`,
-    `Parent: ${task.parent || "Unknown"}`,
-    `Deleted?: ${task.deleted || "Unknown"}`,
-    `Completed Date: ${task.completed || "Unknown"}`,
-    `Position: ${task.position || "Unknown"}`,
-    `ETag: ${task.etag || "Unknown"}`,
-    `Links: ${task.links || "Unknown"}`,
-    `Kind: ${task.kind || "Unknown"}`,
-    `Status: ${task.status || "Unknown"}`,
-    `Created: ${task.updated || "Unknown"}`,
-    `Updated: ${task.updated || "Unknown"}`,
-  ].join("\n");
+    const taskDetails = [
+      `Title: ${task.title || "No title"}`,
+      `Status: ${task.status || "Unknown"}`,
+      `Due: ${task.due || "Not set"}`,
+      `Notes: ${task.notes || "No notes"}`,
+      `Hidden: ${task.hidden || "Unknown"}`,
+      `Parent: ${task.parent || "Unknown"}`,
+      `Deleted?: ${task.deleted || "Unknown"}`,
+      `Completed Date: ${task.completed || "Unknown"}`,
+      `Position: ${task.position || "Unknown"}`,
+      `ETag: ${task.etag || "Unknown"}`,
+      `Links: ${task.links || "Unknown"}`,
+      `Kind: ${task.kind || "Unknown"}`,
+      `Status: ${task.status || "Unknown"}`,
+      `Created: ${task.updated || "Unknown"}`,
+      `Updated: ${task.updated || "Unknown"}`,
+    ].join("\n");
 
-  return {
-    contents: [
-      {
-        uri: request.params.uri,
-        mimeType: "text/plain",
-        text: taskDetails,
-      },
-    ],
-  };
+    return {
+      contents: [
+        {
+          uri: request.params.uri,
+          mimeType: "text/plain",
+          text: taskDetails,
+        },
+      ],
+    };
+  }
+
+  if (request.params.uri.startsWith("gcalendar:///")) {
+      const event = await CalendarResources.read(request, calendar);
+      const eventDetails = JSON.stringify(event, null, 2);
+       return {
+            contents: [
+                {
+                    uri: request.params.uri,
+                    mimeType: "application/json",
+                    text: eventDetails,
+                },
+            ],
+        };
+  }
+
+  throw new Error("Resource not found");
 });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -201,6 +221,82 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["id", "uri"],
         },
       },
+
+      {
+        name: "calendar_list_events",
+        description: "List events from a Google Calendar",
+        inputSchema: {
+          type: "object",
+          properties: {
+            calendarId: {
+                type: "string",
+                description: "Calendar ID (default: primary)",
+            },
+            maxResults: {
+                type: "number",
+                description: "Maximum results to return",
+            },
+            timeMin: {
+                type: "string",
+                description: "Minimum time (ISO 8601)",
+            },
+            timeMax: {
+                type: "string",
+                description: "Maximum time (ISO 8601)",
+            },
+            query: {
+                type: "string",
+                description: "Free text search terms",
+            },
+          },
+        },
+      },
+      {
+        name: "calendar_create_event",
+        description: "Create a new event in Google Calendar",
+        inputSchema: {
+          type: "object",
+          properties: {
+             calendarId: { type: "string", description: "Calendar ID (default: primary)" },
+             summary: { type: "string", description: "Event title/summary" },
+             description: { type: "string", description: "Event description" },
+             location: { type: "string", description: "Event location" },
+             startTime: { type: "string", description: "Start time (ISO 8601)" },
+             endTime: { type: "string", description: "End time (ISO 8601)" },
+             createMeet: { type: "boolean", description: "Create a Google Meet link" },
+          },
+          required: ["summary", "startTime", "endTime"],
+        },
+      },
+      {
+         name: "calendar_update_event",
+         description: "Update an existing event in Google Calendar",
+         inputSchema: {
+            type: "object",
+             properties: {
+                 calendarId: { type: "string", description: "Calendar ID (default: primary)" },
+                 eventId: { type: "string", description: "Event ID to update" },
+                 summary: { type: "string", description: "New title/summary" },
+                 description: { type: "string", description: "New description" },
+                 location: { type: "string", description: "New location" },
+                 startTime: { type: "string", description: "New start time (ISO 8601)" },
+                 endTime: { type: "string", description: "New end time (ISO 8601)" },
+             },
+             required: ["eventId"],
+         },
+      },
+      {
+        name: "calendar_delete_event",
+        description: "Delete an event from Google Calendar",
+        inputSchema: {
+             type: "object",
+             properties: {
+                 calendarId: { type: "string", description: "Calendar ID (default: primary)" },
+                 eventId: { type: "string", description: "Event ID to delete" },
+             },
+             required: ["eventId"],
+        },
+      },
     ],
   };
 });
@@ -230,6 +326,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const taskResult = await TaskActions.clear(request, tasks);
     return taskResult;
   }
+  
+  // Calendar Tools
+  if (request.params.name === "calendar_list_events") {
+      return await CalendarActions.list_events(request, calendar);
+  }
+  if (request.params.name === "calendar_create_event") {
+      return await CalendarActions.create_event(request, calendar);
+  }
+  if (request.params.name === "calendar_update_event") {
+      return await CalendarActions.update_event(request, calendar);
+  }
+  if (request.params.name === "calendar_delete_event") {
+      return await CalendarActions.delete_event(request, calendar);
+  }
+
   throw new Error("Tool not found");
 });
 
@@ -253,13 +364,19 @@ async function authenticateAndSaveCredentials() {
       console.error(`Using keys file from GOOGLE_OAUTH_CREDENTIALS environment variable: ${process.env.GOOGLE_OAUTH_CREDENTIALS}`);
       auth = await authenticate({
         keyfilePath: process.env.GOOGLE_OAUTH_CREDENTIALS,
-        scopes: ["https://www.googleapis.com/auth/tasks"],
+        scopes: [
+          "https://www.googleapis.com/auth/tasks",
+          "https://www.googleapis.com/auth/calendar",
+        ],
       });
     } else if (fs.existsSync(keyFilePath)) {
       console.error(`Using keys file: ${keyFilePath}`);
       auth = await authenticate({
         keyfilePath: keyFilePath,
-        scopes: ["https://www.googleapis.com/auth/tasks"],
+        scopes: [
+          "https://www.googleapis.com/auth/tasks",
+          "https://www.googleapis.com/auth/calendar",
+        ],
       });
     } else if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       console.error("Using credentials from environment variables.");
@@ -283,7 +400,10 @@ async function authenticateAndSaveCredentials() {
       
       auth = await authenticate({
         keyfilePath: tempKeyPath,
-        scopes: ["https://www.googleapis.com/auth/tasks"],
+        scopes: [
+          "https://www.googleapis.com/auth/tasks",
+          "https://www.googleapis.com/auth/calendar",
+        ],
       });
     } else {
       throw new Error(
