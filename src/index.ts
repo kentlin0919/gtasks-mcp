@@ -40,7 +40,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
       mimeType: "text/plain",
       name: task.title,
     })),
-    nextCursor: nextPageToken,
+    nextCursor: nextPageToken ? nextPageToken : undefined,
   };
 });
 
